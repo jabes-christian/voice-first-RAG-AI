@@ -1,0 +1,16 @@
+# Criar o .gitignore
+cat > .gitignore << 'EOF'
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+knowledge_base/vector_store/
+*.db
+.DS_Store
+EOF
+output/
+outputs/
+.vscode/
+.idea/
+*.swp
