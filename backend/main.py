@@ -92,6 +92,7 @@ async def health_check():
 #    { "type": "error",       "message": "..." }
 # ──────────────────────────────────────────────
 
+
 @app.websocket("/ws/voice")
 async def voice_endpoint(ws: WebSocket):
     session_id = str(uuid.uuid4())
