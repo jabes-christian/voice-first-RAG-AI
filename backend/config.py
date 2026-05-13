@@ -2,14 +2,17 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Azure
+    # Azure Speech
     AZURE_SPEECH_KEY: str
     AZURE_SPEECH_REGION: str = "eastus"
 
-    # LLM
-    OPENAI_API_KEY: str
-    OPENAI_MODEL: str = "gpt-4o"
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    # OpenRouter (substitui OpenAI diretamente)
+    OPENROUTER_API_KEY: str
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    LLM_MODEL: str = "google/gemma-3-27b-it:free"
+
+    # Embedding — HuggingFace local, sem API key
+    EMBEDDING_MODEL: str = "BAAI/bge-m3"
 
     # Vector Store
     CHROMA_PERSIST_DIR: str = "./knowledge_base/vector_store"
