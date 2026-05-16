@@ -76,22 +76,6 @@ app.add_middleware(
 async def health_check():
     return {"status": "ok", "rag_ready": hasattr(app.state, "rag_chain")}
 
-# ──────────────────────────────────────────────
-# WebSocket principal
-# Protocolo de mensagens (JSON):
-#
-#  Cliente → Servidor:
-#    { "type": "audio_chunk", "data": "<bytes_b64>" }
-#    { "type": "end_stream" }
-#    { "type": "text_query", "text": "..." }  ← fallback sem áudio
-#
-#  Servidor → Cliente:
-#    { "type": "transcript",  "text": "..." }
-#    { "type": "token",       "text": "..." }  ← streaming token a token
-#    { "type": "done" }
-#    { "type": "error",       "message": "..." }
-# ──────────────────────────────────────────────
-
 
 @app.websocket("/ws/voice")
 async def voice_endpoint(ws: WebSocket):
