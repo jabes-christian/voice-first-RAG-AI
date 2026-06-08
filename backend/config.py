@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     # Embedding — HuggingFace local, sem API key
     EMBEDDING_MODEL: str = "BAAI/bge-m3"
 
+    # HuggingFace — opcionais
+    HF_TOKEN: str = ""
+    HF_HUB_DISABLE_SYMLINKS_WARNING: str = "1"
+
     # Vector Store
     CHROMA_PERSIST_DIR: str = "./knowledge_base/vector_store"
 
@@ -23,6 +27,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore" 
 
 
 settings = Settings()
