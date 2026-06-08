@@ -1,5 +1,5 @@
 import logging
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from backend.config import settings
@@ -13,7 +13,7 @@ def get_retriever():
 
     embeddings = HuggingFaceEmbeddings(
         model_name=settings.EMBEDDING_MODEL,
-        model_kwargs={"device": "cpu"},   # trocar para "cuda" se tiver GPU
+        model_kwargs={"device": "cpu"},
         encode_kwargs={"normalize_embeddings": True},
     )
 
