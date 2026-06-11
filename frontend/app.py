@@ -1,6 +1,9 @@
+# frontend/app.py
+
 import asyncio
 import json
 import logging
+import queue
 import threading
 
 import streamlit as st
@@ -11,7 +14,6 @@ from audio_recorder import get_audio_processor, send_audio_and_receive
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 st.set_page_config(
     page_title="Suporte Técnico por Voz",
     page_icon="🎙️",
@@ -21,25 +23,41 @@ st.set_page_config(
 st.title("🎙️ Assistente de Suporte Técnico")
 st.caption("Fale sua dúvida — o assistente responde em tempo real.")
 
+# ──────────────────────────────────────────────
+# Estado da sessão
+# ──────────────────────────────────────────────
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-if "ws_queue" not in st.session_state:
+if "audio_queue" not in st.session_state:
+    st.session_state.audio_queue = queue.Queue(maxsize=500)
 
-    st.session_state.ws_queue = asyncio.Queue(maxsize=100)
+if "result_queue" not in st.session_state:
+    st.session_state.result_queue = queue.Queue()
 
 if "ws_thread" not in st.session_state:
     st.session_state.ws_thread = None
 
-
+# ──────────────────────────────────────────────
+# Placeholders de UI
+# ──────────────────────────────────────────────
 status_placeholder = st.empty()
 transcript_placeholder = st.empty()
 response_placeholder = st.empty()
 
+# ──────────────────────────────────────────────
+# Referências locais às filas — ANTES de qualquer uso
+# Declaradas aqui para estarem disponíveis em todo o script
+# ──────────────────────────────────────────────
+_audio_queue = st.session_state.audio_queue
+_result_queue = st.session_state.result_queue
 
+# ──────────────────────────────────────────────
+# Captura de áudio via WebRTC
+# ──────────────────────────────────────────────
 st.subheader("Captura de voz")
 
-AudioProcessor = get_audio_processor(st.session_state.ws_queue)
+AudioProcessor = get_audio_processor(_audio_queue)
 
 ctx = webrtc_streamer(
     key="voice-rag",
@@ -57,35 +75,81 @@ ctx = webrtc_streamer(
     async_processing=True,
 )
 
-def run_ws_loop():
+# ──────────────────────────────────────────────
+# Thread do WebSocket
+# ──────────────────────────────────────────────
+def run_ws_loop(audio_q: queue.Queue, result_q: queue.Queue):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(
-        send_audio_and_receive(
-            ws_queue=st.session_state.ws_queue,
-            transcript_placeholder=transcript_placeholder,
-            response_placeholder=response_placeholder,
-            status_placeholder=status_placeholder,
+    try:
+        loop.run_until_complete(
+            send_audio_and_receive(audio_q, result_q)
         )
-    )
+    except Exception as e:
+        logger.error(f"[WS Thread] {e}")
+        result_q.put(("error", str(e)))
+    finally:
+        loop.close()
 
 
+# ──────────────────────────────────────────────
+# Controle do stream — APÓS declaração das filas
+# ──────────────────────────────────────────────
 if ctx.state.playing:
     if (
         st.session_state.ws_thread is None
         or not st.session_state.ws_thread.is_alive()
     ):
         status_placeholder.info("🔄 Conectando ao backend...")
-        ws_thread = threading.Thread(target=run_ws_loop, daemon=True)
+        ws_thread = threading.Thread(
+            target=run_ws_loop,
+            args=(_audio_queue, _result_queue),
+            daemon=True,
+        )
         ws_thread.start()
         st.session_state.ws_thread = ws_thread
+
+    # Lê resultados e atualiza UI no thread principal
+    try:
+        while True:
+            msg_type, content = _result_queue.get_nowait()
+
+            if msg_type == "status":
+                status_placeholder.info(content)
+            elif msg_type == "transcript":
+                transcript_placeholder.info(f"🗣️ **Você disse:** {content}")
+            elif msg_type == "token":
+                response_placeholder.markdown(content + "▌")
+            elif msg_type == "done":
+                response_placeholder.markdown(content)
+                if content:
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": content,
+                    })
+                status_placeholder.success("✅ Resposta completa")
+            elif msg_type == "error":
+                status_placeholder.error(f"❌ {content}")
+
+    except queue.Empty:
+        pass
+
 else:
-    # Stream parado — sinaliza fim para o WebSocket
-    if not st.session_state.ws_queue.empty():
-        st.session_state.ws_queue.put_nowait(None)
+    # Stream parado — esvazia fila e sinaliza fim
+    while not _audio_queue.empty():
+        try:
+            _audio_queue.get_nowait()
+        except queue.Empty:
+            break
+    try:
+        _audio_queue.put_nowait(None)
+    except queue.Full:
+        pass
     status_placeholder.warning("⏸️ Microfone pausado")
 
-
+# ──────────────────────────────────────────────
+# Fallback: entrada de texto manual
+# ──────────────────────────────────────────────
 st.divider()
 st.subheader("Ou digite sua pergunta")
 
@@ -104,11 +168,12 @@ if submitted and text_input.strip():
     })
 
     import websockets
-    import asyncio as _asyncio
 
     async def send_text_query(text: str):
         try:
-            async with websockets.connect("ws://localhost:8000/ws/voice") as ws:
+            async with websockets.connect(
+                "ws://localhost:8000/ws/voice"
+            ) as ws:
                 await ws.send(json.dumps({
                     "type": "text_query",
                     "text": text,
@@ -132,8 +197,11 @@ if submitted and text_input.strip():
         except Exception as e:
             st.error(f"Erro ao conectar: {e}")
 
-    _asyncio.run(send_text_query(text_input))
+    asyncio.run(send_text_query(text_input))
 
+# ──────────────────────────────────────────────
+# Histórico de conversa
+# ──────────────────────────────────────────────
 if st.session_state.messages:
     st.divider()
     st.subheader("Histórico")
