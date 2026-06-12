@@ -2,11 +2,14 @@ import asyncio
 import json
 import logging
 import uuid
+import tempfile
+import os
 from contextlib import asynccontextmanager
 from typing import Dict
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import UploadFile, File
 
 from backend.config import settings
 from backend.speech.azure_stt import AzureSTTClient
@@ -66,7 +69,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restringir em produção
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -75,6 +78,38 @@ app.add_middleware(
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "rag_ready": hasattr(app.state, "rag_chain")}
+
+
+@app.post("/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+
+    suffix = os.path.splitext(file.filename)[1] or ".wav"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        import azure.cognitiveservices.speech as speechsdk
+
+        speech_config = speechsdk.SpeechConfig(
+            subscription=settings.AZURE_SPEECH_KEY,
+            region=settings.AZURE_SPEECH_REGION,
+        )
+        speech_config.speech_recognition_language = "pt-BR"
+        audio_config = speechsdk.audio.AudioConfig(filename=tmp_path)
+        recognizer = speechsdk.SpeechRecognizer(
+            speech_config=speech_config,
+            audio_config=audio_config,
+        )
+        result = await asyncio.to_thread(recognizer.recognize_once)
+
+        if result.reason == speechsdk.ResultReason.RecognizedSpeech:
+            return {"transcript": result.text}
+        else:
+            return {"transcript": ""}
+    finally:
+        os.unlink(tmp_path)
 
 
 @app.websocket("/ws/voice")
