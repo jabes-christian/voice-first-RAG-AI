@@ -1,0 +1,61 @@
+version: "3.9"
+
+services:
+
+  # ──────────────────────────────────────────
+  # Backend — FastAPI
+  # ──────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: voice-rag-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persiste o vector store entre reinicializações
+      - ./knowledge_base:/app/knowledge_base
+      # Monta o .env do host dentro do container
+      - ./.env:/app/.env:ro
+      # Cache do HuggingFace — evita re-download do bge-m3 (2.27 GB)
+      - huggingface_cache:/root/.cache/huggingface
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s   # tempo para carregar o bge-m3
+    restart: unless-stopped
+    networks:
+      - voice-rag-net
+
+  # ──────────────────────────────────────────
+  # Frontend — Streamlit
+  # ──────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: voice-rag-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - voice-rag-net
+
+networks:
+  voice-rag-net:
+    driver: bridge
+
+volumes:
+  # Volume nomeado para cache do HuggingFace
+  # Persiste entre docker compose down/up
+  huggingface_cache:

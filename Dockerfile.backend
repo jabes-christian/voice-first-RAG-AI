@@ -1,0 +1,31 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Dependências de sistema necessárias para o Azure Speech SDK
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libssl-dev \
+    ca-certificates \
+    libasound2 \
+    wget \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copia e instala dependências Python
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copia o código do projeto
+COPY backend/ ./backend/
+COPY knowledge_base/raw/ ./knowledge_base/raw/
+
+# Cria a pasta do vector store
+RUN mkdir -p ./knowledge_base/vector_store
+
+# Porta exposta
+EXPOSE 8000
+
+# Healthcheck endpoint disponível
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
